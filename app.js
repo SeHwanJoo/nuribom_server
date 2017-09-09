@@ -36,6 +36,7 @@ app.use('/mypage',mypage);
 app.use(function(req, res, next) {
   function data(){
     var haha = 10;
+    haha = 20;
   }
   var err = new Error('Not Found');
   err.status = 404;
