@@ -34,6 +34,9 @@ app.use('/mypage',mypage);
 
 // catch 404 and forward to error handler
 app.use(function(req, res, next) {
+  function data(){
+    var haha = 10;
+  }
   var err = new Error('Not Found');
   err.status = 404;
   next(err);
