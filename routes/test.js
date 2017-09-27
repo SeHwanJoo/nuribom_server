@@ -25,6 +25,8 @@ var parser = new xml2js.Parser();
 
 var app = express();
 
+
+
 // router.post('/sqlinjection', (req, res) => {
 //   return new Promise((fulfill, reject) => {
 //     pool.getConnection((err, connection) => {  //커낵션 객체 가져오기
@@ -161,7 +163,7 @@ router.post('/like', (req, res) => {
            }
         });
       }
-    })
+    });
   })
   .catch(err => { res.status(500).send({ message: "getConnection error: "+err });})
   .then(([message, connection]) => {
@@ -179,8 +181,8 @@ router.post('/like', (req, res) => {
          }
       });
       connection.release();
-    })
-  })
+    });
+  });
 
 });
 
@@ -215,7 +217,7 @@ router.post('/:id', upload.single('image'), (req, res) => {
         });
       }
     });
-  })
+  });
 });
 // module.exports = router;
 

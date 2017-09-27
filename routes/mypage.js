@@ -21,6 +21,128 @@ var upload = multer({
 
 var router = express.Router();
 
+router.get('/:userid', (req, res) => {
+  return new Promise((fulfill, reject) => {
+    pool.getConnection((err, connection) => {
+      if(err) reject(err);
+      else fulfill(connection);
+    });
+  })
+  .catch(err => { res.status(500).send({ message: "getConnection error: "+err });})
+  .then((connection) => {
+    return new Promise((fulfill, reject) => {
+      var query = 'select * from user where userid = ?';
+      connection.query(query, req.params.userid, (err, data) => {
+        if(err) reject(err);
+        else {
+          if(data[0]) fulfill(connection);
+          else res.status(500).send({message : "no user"});
+        }
+      });
+    });
+  })
+  .catch(err => { res.status(500).send({ message: "getConnection error: "+err });})
+  .then((connection) => {
+    return new Promise((fulfill, reject) => {
+      var query = 'select count(*) as count from triplike where userid = ?';
+      connection.query(query, req.params.userid, (err, data) => {
+        var triplike=0;
+        if(err) reject(err);
+        else {
+          if(data[0]) triplike = data[0].count;
+          var count = {
+            triplike: triplike
+          };
+          console.log(count);
+          fulfill([connection, count]);
+        }
+      });
+    });
+  })
+  .catch(err => { res.status(500).send({ message: "getConnection error: "+err });})
+  .then(([connection,count]) => {
+    return new Promise((fulfill, reject) => {
+      var query = 'select count(*) as count from courselike where userid = ?';
+      console.log(count);
+      connection.query(query, req.params.userid, (err, data) => {
+        var courselike=0;
+        if(err) reject(err);
+        else {
+          if(data[0]) courselike = data[0].count;
+          count = {
+            triplike: count.triplike,
+            courselike: courselike
+          };
+          console.log(count);
+          fulfill([connection, count]);
+        }
+      });
+    });
+  })
+  .catch(err => { res.status(500).send({ message: "getConnection error: "+err });})
+  .then(([connection,count]) => {
+    return new Promise((fulfill, reject) => {
+      var query = 'select count(distinct courseid) as count from coursecomment where userid = ?';
+      connection.query(query, req.params.userid, (err, data) => {
+        var coursecomment=0;
+        if(err) reject(err);
+        else {
+          if(data[0]) coursecomment = data[0].count;
+          count = {
+            triplike: count.triplike,
+            courselike: count.courselike,
+            coursecomment: coursecomment
+          };
+          console.log(count);
+          fulfill([connection, count]);
+        }
+      });
+    });
+  })
+  .catch(err => { res.status(500).send({ message: "getConnection error: "+err });})
+  .then(([connection,count]) => {
+    return new Promise((fulfill, reject) => {
+      var query = 'select count(distinct contentid) as count from tripreviews where userid = ?';
+      connection.query(query, req.params.userid, (err, data) => {
+        var tripreviews=0;
+        if(err) reject(err);
+        else {
+          if(data[0]) tripreviews = data[0].count;
+          count = {
+            triplike: count.triplike,
+            courselike: count.courselike,
+            coursecomment: count.coursecomment,
+            tripreviews: tripreviews
+          };
+          fulfill([connection, count]);
+        }
+      });
+    });
+  })
+  .catch(err => { res.status(500).send({ message: "getConnection error: "+err });})
+  .then(([connection,count]) => {
+    return new Promise((fulfill, reject) => {
+      var query = 'select count(*) as count from course where userid = ?';
+      connection.query(query, req.params.userid, (err, data) => {
+        var course=0;
+        if(err) res.status(500).send({ message:err});
+        else {
+          if(data[0]) course = data[0].count;
+          count = {
+            triplike: count.triplike,
+            courselike: count.courselike,
+            coursecomment: count.coursecomment,
+            tripreviews : count.tripreviews,
+            course: course
+          };
+          res.status(200).send({result:count});
+        }
+      });
+      connection.release();
+    });
+  })
+});
+
 //내가 단 댓글
 router.get('/comment/:userid', (req, res) => {
   return new Promise((fulfill, reject) => {
@@ -82,7 +204,7 @@ router.get('/comment/:userid', (req, res) => {
 });
 
 //coursebookmark
-router.get('/coursebookmark/:userid', (req, res) => {
+router.get('/courselike/:userid', (req, res) => {
   return new Promise((fulfill, reject) => {
     pool.getConnection((err, connection) => {
       if(err) reject(err);
@@ -105,12 +227,12 @@ router.get('/coursebookmark/:userid', (req, res) => {
   .catch(err => { res.status(500).send({ message: "getConnection error: "+err });})
   .then((connection) => {
     return new Promise((fulfill, reject) => {
-      var query = 'select distinct courseid from coursebookmark where userid = ?';
+      var query = 'select distinct courseid from courselike where userid = ?';
       connection.query(query, req.params.userid, (err, data) => {
         if(err) reject(err);
         else {
           if(data[0]) fulfill([data,connection]);
-          else res.status(500).send({message : "no bookmark"});
+          else res.status(500).send({message : "no like"});
         }
       });
     });
@@ -241,7 +363,7 @@ router.get('/review/:userid', (req, res) => {
 });
 
 //tripbookmark
-router.get('/tripbookmark/:userid', (req, res) => {
+router.get('/triplike/:userid', (req, res) => {
   return new Promise((fulfill, reject) => {
     pool.getConnection((err, connection) => {
       if(err) reject(err);
@@ -264,12 +386,12 @@ router.get('/tripbookmark/:userid', (req, res) => {
   .catch(err => { res.status(500).send({ message: "getConnection error: "+err });})
   .then((connection) => {
     return new Promise((fulfill, reject) => {
-      var query = 'select distinct contentid from tripbookmark where userid = ?';
+      var query = 'select distinct contentid from triplike where userid = ?';
       connection.query(query, req.params.userid, (err, data) => {
         if(err) reject(err);
         else {
           if(data[0]) fulfill([data,connection]);
-          else res.status(500).send({message : "no bookmark"});
+          else res.status(500).send({message : "no like"});
         }
       });
     });

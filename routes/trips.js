@@ -6,6 +6,7 @@ const aws = require('aws-sdk');
 const multer = require('multer');
 const moment = require('moment');
 const multerS3 = require('multer-s3');
+const check = require('./need.js');
 const router = express.Router();
 var parser = new xml2js.Parser();
 aws.config.loadFromPath('./config/aws_config.json');
@@ -23,6 +24,7 @@ const upload = multer({
 });
 
 //조회수 올리는 방안 생각하기
+//다시만들기
 router.post('/', (req, res) => {
   var url = 'http://api.visitkorea.or.kr/openapi/service/rest/KorWithService/';
   var addurl = 'detailCommon';
@@ -34,12 +36,11 @@ router.post('/', (req, res) => {
                   '&'+encodeURIComponent('contentTypeId') + '=' + req.body.contenttypeid +
                   '&'+encodeURIComponent('contentId') + '=' + req.body.contentid;
 
+
+
   var queryParams_2 = '&' + encodeURIComponent('defaultYN') + '=Y' +
                       '&' + encodeURIComponent('firstImageYN') + '=Y' +
-                    // '&' + encodeURIComponent('addrinfoYN=Y') +
                       '&' + encodeURIComponent('overviewYN') + '=Y';
-  // queryParams += '&'+encodeURIComponent('contentTypeId') + '=32';
-  // queryParams += '&'+encodeURIComponent('contentId') + '=1874417';
   console.log(url+ addurl + queryParams_1 + queryParams_2);
 
   return new Promise((fulfill, reject) => {
@@ -361,8 +362,9 @@ router.post('/', (req, res) => {
 
                      res.send({result : tripinfo});
 
-                     connection.release();
+
                   });
+                  connection.release();
               });
             });
           });
@@ -372,132 +374,98 @@ router.post('/', (req, res) => {
   });
 });
 
-//userid, contentid 무결성검사
+
 router.post('/review', upload.single('image'), (req, res) => {
-  return new Promise((fulfill, reject) => {
-    pool.getConnection((err, connection) => {
-      if(err) reject(err);
-      else fulfill(connection);
-    });
+  check.usercheck(req.body.userid)
+  .catch(([err,connection]) => {
+    res.status(500).send({message:err});
+    connection.rollback();
+    connection.release();
   })
-  .catch(err => {res.status(500).send({message : "getConnection error" + err});})
-  .then(connection => {
+  .then(([connection,wheatheruser]) => {
     return new Promise((fulfill, reject) => {
-      if(!(req.body.userid && req.body.contentid && req.body.stars && req.body.content)) res.send({message : 'insert userid & contentid'});
-      else {
-        var query = 'insert into tripreviews set ?';
-        var record = {
-          userid : req.body.userid,
-          contentid: req.body.contentid,
-          stars : req.body.stars,
-          date: moment(new Date()).format('YYYY-MM-DD, h:mm:ss a'),
-          content: req.body.content,
-          image: req.file ? req.file.location : null
-          // reviewid : req.body.contentid + Date.now()
-        }
-        connection.query(query, record, (err,data) => {
-          console.log(data);
-         if(err) res.status(500).send({ message: "inserting post error: "+err});
-         else {
+      if(wheatheruser==='exist'){
+        if(!(req.body.userid && req.body.contentid && req.body.stars && req.body.content)) res.send({message : 'insert userid & contentid'});
+        else {
+          var query = 'insert into tripreviews set ?';
+          var record = {
+            userid : req.body.userid,
+            contentid: req.body.contentid,
+            stars : req.body.stars,
+            date: moment(new Date()).format('YYYY-MM-DD, h:mm:ss a'),
+            content: req.body.content,
+            image: req.file ? req.file.location : null
+            // reviewid : req.body.contentid + Date.now()
+          };
+          connection.query(query, record, (err,data) => {
             if(err) reject(err);
-            else fulfill(connection);
-          }
-        });
+           else fulfill(connection);
+          });
+        }
+      }
+      else{
+        res.status(500).send({message:err});
+        connection.rollback();
+        connection.release();
       }
     });
   })
-  .catch(err => { res.status(500).send({ message: "getConnection error: "+err });})
+  .catch(([err,connection]) => {
+    res.status(500).send({message:err});
+    connection.rollback();
+    connection.release();
+  })
   .then((connection) => {
     return new Promise((fulfill, reject) => {
       var query = 'update trips set commentcount = commentcount + 1 where contentid = ?';
       connection.query(query, req.body.contentid, (err) => {
        if(err) res.status(500).send({ message: "commentcount error: "+err});
        else res.status(200).send({message: "success"});
-     });
-   });
- });
-});
-
-router.post('/bookmark', (req, res) => {
-  return new Promise((fulfill, reject) => {
-    pool.getConnection((err, connection) => {
-      if(err) reject(err);
-      else fulfill(connection);
+      });
+      connection.commit();
+      connection.release();
     });
-  })
-  .catch(err => {res.status(500).send({message : "getConnection error" + err});})
-  .then(connection => {
-    return new Promise((fulfill, reject) => {
-      if(!(req.body.userid && req.body.contentid)) res.send({message : 'insert userid & contentid'});
-      else {
-        var message = 'mark';
-        var query = 'select * from tripbookmark where contentid = ? && userid = ?';
-        connection.query(query, [req.body.contentid, req.body.userid], (err,data) => {
-         if(err) res.status(500).send({ message: "inserting post error: "+err});
-         else {
-            if(data[0]) message = 'unmark';
-            if(err) reject(err);
-            else fulfill([message, connection]);
-          }
-        });
-         console.log(message);
-      }
-    });
-  })
-  .catch(err => { res.status(500).send({ message: "getConnection error: "+err });})
-  .then(([message, connection]) => {
-    return new Promise((fulfill, reject) => {
-      var query, record;
-      if(message === 'mark'){
-        query = 'insert into tripbookmark set ?';
-        record = {
-          userid : req.body.userid,
-          contentid : req.body.contentid
-        };
-        connection.query(query, record, (err) => {
-           if(err) res.status(500).send({ message:err});
-           else res.status(200).send({message : message});
-        });
-      } else {
-        query = 'delete from tripbookmark where userid = ? && contentid = ?';
-        connection.query(query, [req.body.userid, req.body.contentid], (err) => {
-          if(err) res.status(500).send({ message:err});
-          else res.status(200).send({message : message});
-        });
-        connection.release();
-      }
-    })
   });
 });
-//user가 있는 지 무결성검사, contentid가 있는지 무결성 검사
-router.post('/like', (req, res) => {
-  return new Promise((fulfill, reject) => {
-    pool.getConnection((err, connection) => {
-      if(err) reject(err);
-      else fulfill(connection);
-    });
-  })
-  .catch(err => {res.status(500).send({message : "getConnection error" + err});})
-  .then(connection => {
-    return new Promise((fulfill, reject) => {
-      if(!(req.body.userid && req.body.contentid)) res.send({message : 'insert userid & contentid'});
-      else {
-        var message = 'like';
-        var query = 'select * from triplike where contentid = ? && userid = ?';
-        connection.query(query, [req.body.contentid, req.body.userid], (err,data) => {
-         if(err) res.status(500).send({ message: "inserting post error: "+err});
-         else {
-           if(data[0]) message = 'unlike';
 
-            if(err) reject(err);
-            else fulfill([message, connection]);
-          }
-        });
-         console.log(message);
+
+
+router.post('/like', (req, res) => {
+  check.usercheck(req.body.userid)
+  .catch(([err,connection]) => {
+    res.status(500).send({message:err});
+    connection.rollback();
+    connection.release();
+  })
+  .then(([connection,wheatheruser]) => {
+    return new Promise((fulfill, reject) => {
+      if(wheatheruser==='exist'){
+        if(!(req.body.userid && req.body.contentid)) res.send({message : 'insert userid & contentid'});
+        else {
+          var message = 'like';
+          var query = 'select * from triplike where contentid = ? && userid = ?';
+          connection.query(query, [req.body.contentid, req.body.userid], (err,data) => {
+            if(err) reject([err,connection]);
+            else {
+              if(data[0]) message = 'unlike';
+              fulfill([message, connection]);
+            }
+          });
+          console.log(message);
+        }
+      }
+      else{
+        res.status(500).send({message:err});
+        connection.rollback();
+        connection.release();
       }
     });
   })
-  .catch(err => { res.status(500).send({ message: "getConnection error: "+err });})
+  .catch(([err,connection]) => {
+    res.status(500).send({message:err});
+    connection.rollback();
+    connection.release();
+  })
   .then(([message, connection]) => {
     return new Promise((fulfill, reject) => {
       var query;
@@ -505,28 +473,24 @@ router.post('/like', (req, res) => {
         query = 'update trips set likecount = likecount + 1 where contentid = ?';
         console.log(query);
         connection.query(query, req.body.contentid, (err) => {
-           if(err) res.status(500).send({ message:err});
-           else {
-             if(err) reject(err);
-             else fulfill([message,  connection]);
-            //  res.status(200).send({result = {message : message, likecount : data[0].likecount}});
-           }
+          if(err) reject([err,connection]);
+          else fulfill([message,  connection]);
         });
       } else {
         query = 'update trips set likecount = likecount - 1 where contentid = ?';
         // console.log(query);
         connection.query(query, req.body.contentid, (err) => {
-           if(err) res.status(500).send({ message:err});
-           else {
-             if(err) reject(err);
-             else fulfill([message,connection]);
-            //  res.status(200).send({result : { message: message}, likecount : likecount});
-           }
+          if(err) reject([err,connection]);
+          else fulfill([message,  connection]);
         });
       }
     });
   })
-  .catch(err => { res.status(500).send({ message: "getConnection error: "+err });})
+  .catch(([err,connection]) => {
+    res.status(500).send({message:err});
+    connection.rollback();
+    connection.release();
+  })
   .then(([message, connection]) => {
     console.log(message);
     return new Promise((fulfill, reject) => {
@@ -539,25 +503,23 @@ router.post('/like', (req, res) => {
         };
         // console.log(record);
         connection.query(query, record, (err) => {
-           if(err) res.status(500).send({ message:err});
-           else {
-             if(err) reject(err);
-             else fulfill([message,connection]);
-           }
+          if(err) reject([err,connection]);
+          else fulfill([message,  connection]);
         });
       } else {
         query = 'delete from triplike where userid = ? && contentid = ?';
         connection.query(query, [req.body.userid, req.body.contentid], (err) => {
-           if(err) res.status(500).send({ message:err});
-           else {
-             if(err) reject(err);
-             else fulfill([message,connection]);
-           }
+          if(err) reject([err,connection]);
+          else fulfill([message,  connection]);
         });
       }
-    })
+    });
   })
-  .catch(err => { res.status(500).send({ message: "getConnection error: "+err });})
+  .catch(([err,connection]) => {
+    res.status(500).send({message:err});
+    connection.rollback();
+    connection.release();
+  })
   .then(([message, connection]) => {
     // console.log(message);
     return new Promise((fulfill, reject) => {
@@ -572,9 +534,10 @@ router.post('/like', (req, res) => {
            res.status(200).send({result : result});
          }
       });
+      connection.commit();
       connection.release();
-    })
-  })
+    });
+  });
 
 });
 
@@ -593,7 +556,7 @@ router.get('/reviews/:contentid', (req, res) => {
         connection.query(query, req.params.contentid, (err,data) => {
            if(err) res.status(500).send({ message:err});
            else {
-             if(data[0]) res.status(201).send({result : data});
+             if(data[0]) res.status(201).send({result : data, message:'ok'});
              else res.send({result : 'no'});
            }
         });
@@ -602,22 +565,18 @@ router.get('/reviews/:contentid', (req, res) => {
    });
 });
 
-router.get('/list/:keyword', (req, res) =>{
+router.post('/list', (req, res) =>{
   var url = 'http://api.visitkorea.or.kr/openapi/service/rest/KorWithService/';
   var addurl = 'searchKeyword';
   var queryParams_1 = '?' + encodeURIComponent('serviceKey') + '=St8SeJItH0g9EjHGeoNaurQcgF0LEt0tRHcDnDYsl8EXbS%2FrSk0Q6E76IbcFKXeCjj83fdt1OLiyYobCHN5DyA%3D%3D';
 
   queryParams_1 += '&' + encodeURIComponent('MobileOS') + '=ETC' +
-                  '&' + encodeURIComponent('MobileApp') + '=AppTesting'
+                  '&' + encodeURIComponent('MobileApp') + '=AppTesting';
+
+  if(req.body.local) queryParams_1 += '&' + encodeURIComponent('areaCode') + '=' + req.body.local;
 
   var queryParams_2 = '&' + encodeURIComponent('numOfRows') + '=5' +
-                      '&' + encodeURIComponent('keyword') + '=' + encodeURIComponent(req.params.keyword, 'UTF-8');
-                    // '&' + encodeURIComponent('addrinfoYN=Y') +
-                      // '&' + encodeURIComponent('overviewYN') + '=Y';
-  // queryParams += '&'+encodeURIComponent('contentTypeId') + '=32';
-  // queryParams += '&'+encodeURIComponent('contentId') + '=1874417';
-  // console.log(url+queryParams);
-  // console.log(url+addurl+queryParams_1+queryParams_2);
+                      '&' + encodeURIComponent('keyword') + '=' + encodeURIComponent(req.body.keyword, 'UTF-8');
 
   return new Promise((fulfill, reject) => {
     request({
@@ -665,8 +624,14 @@ router.get('/list/:keyword', (req, res) =>{
     addurl = 'detailCommon';
     queryParams_2 = '&' + encodeURIComponent('overviewYN') + '=Y';
     var overview = new Array();
-    function getData(i){
-      // console.log(url + addurl + queryParams_1 + queryParams_2 + queryParams_3[i]);
+    var parking = new Array();
+    var route = new Array();
+    var wheelchair = new Array();
+    var elevator = new Array();
+    var restroom = new Array();
+    var handicapetc = new Array();
+    var braileblock = new Array();
+    function gettingdata(i) {
       return new Promise((fulfill, reject) => {
         request({
             url: url + addurl + queryParams_1 + queryParams_2 + queryParams_3[i],
@@ -678,14 +643,17 @@ router.get('/list/:keyword', (req, res) =>{
       })
       .catch(err => { res.status(500).send({ message: "getConnection error: "+err }); })
       .then(body => {
-        parser.parseString(body, function(err, result){
-          // console.log(result.response.body[0].items[0].item.length);
-          if(result.response.body[0].items[0].item[0].overview)
-          overview[i] = result.response.body[0].items[0].item[0].overview[0];
-        });
-        addurl = 'detailWithTour';
-        queryParams_2 = '';
-        // console.log(url + addurl + queryParams_1 + queryParams_2 + queryParams_3[i]);
+        return new Promise((fulfill, reject) => {
+          parser.parseString(body, function(err, result){
+            if(err) reject(err)
+            else fulfill(result);
+          });
+        })
+      })
+      .catch(err => { res.status(500).send({ message: "getConnection error: "+err }); })
+      .then((result) => {
+        if(result.response.body[0].items[0].item[0].overview)
+        overview[i] = result.response.body[0].items[0].item[0].overview[0];
         return new Promise((fulfill, reject) => {
           request({
               url: url + addurl + queryParams_1 + queryParams_2 + queryParams_3[i],
@@ -695,103 +663,110 @@ router.get('/list/:keyword', (req, res) =>{
             else fulfill(body);
           });
         })
-        .catch(err => { res.status(500).send({ message: "getConnection error: "+err }); })
-        .then(body => {
-          var parking = new Array();
-          var route = new Array();
-          var wheelchair = new Array();
-          var elevator = new Array();
-          var restroom = new Array();
-          var handicapetc = new Array();
-          var braileblock = new Array();
-          // parking = null;
-          // route = null;
-          // wheelchair = null;
-          // elevator = null;
-          // restroom = null;
-          // handicapetc = null;
-          // braileblock = null;
+      })
+      .catch(err => { res.status(500).send({ message: "getConnection error: "+err }); })
+      .then(body => {
+        return new Promise((fulfill, reject) => {
           parser.parseString(body, function(err, result){
+            if(err) reject(err);
+            else fulfill(result);
             // console.log(result.response.body[0].items[0].item[0]);
-            if(result.response.body[0].items[0].item[0].parking)
-            parking[i] = result.response.body[0].items[0].item[0].parking[0];
-            else parking[i] = null;
-            if(result.response.body[0].items[0].item[0].route)
-            route[i] = result.response.body[0].items[0].item[0].route[0];
-            else route[i] = null;
-            if(result.response.body[0].items[0].item[0].wheelchair)
-            wheelchair[i] = result.response.body[0].items[0].item[0].wheelchair[0];
-            else wheelchair[i] = null;
-            if(result.response.body[0].items[0].item[0].elevator)
-            elevator[i] = result.response.body[0].items[0].item[0].elevator[0];
-            else elevator[i] = null;
-            if(result.response.body[0].items[0].item[0].restroom)
-            restroom[i] = result.response.body[0].items[0].item[0].restroom[0];
-            else restroom[i] = null;
-            if(result.response.body[0].items[0].item[0].handicapetc)
-            handicapetc[i] = result.response.body[0].items[0].item[0].handicapetc[0];
-            else handicapetc[i] = null;
-            if(result.response.body[0].items[0].item[0].braileblock)
-            braileblock[i] = result.response.body[0].items[0].item[0].braileblock[0];
-            else braileblock[i] = null;
+
             // console.log(result);
           });
-          return new Promise((fulfill, reject) => {
-            pool.getConnection((err, connection) => {  //커낵션 객체 가져오기
-              if(err) reject(err);
-              else fulfill(connection);
-              console.log('connection success');
-            });
+        })
+      })
+      .catch(err => { res.status(500).send({ message: "getConnection error: "+err }); })
+      .then((result) => {
+        if(result.response.body[0].items[0].item[0].parking)
+        parking[i] = result.response.body[0].items[0].item[0].parking[0];
+        else parking[i] = null;
+        if(result.response.body[0].items[0].item[0].route)
+        route[i] = result.response.body[0].items[0].item[0].route[0];
+        else route[i] = null;
+        if(result.response.body[0].items[0].item[0].wheelchair)
+        wheelchair[i] = result.response.body[0].items[0].item[0].wheelchair[0];
+        else wheelchair[i] = null;
+        if(result.response.body[0].items[0].item[0].elevator)
+        elevator[i] = result.response.body[0].items[0].item[0].elevator[0];
+        else elevator[i] = null;
+        if(result.response.body[0].items[0].item[0].restroom)
+        restroom[i] = result.response.body[0].items[0].item[0].restroom[0];
+        else restroom[i] = null;
+        if(result.response.body[0].items[0].item[0].handicapetc)
+        handicapetc[i] = result.response.body[0].items[0].item[0].handicapetc[0];
+        else handicapetc[i] = null;
+        if(result.response.body[0].items[0].item[0].braileblock)
+        braileblock[i] = result.response.body[0].items[0].item[0].braileblock[0];
+        else braileblock[i] = null;
+        return new Promise((fulfill, reject) => {
+          pool.getConnection((err, connection) => {  //커낵션 객체 가져오기
+            if(err) reject(err);
+            else fulfill(connection);
+            console.log('connection success');
+          });
+        })
+      })
+      .catch(err => { res.status(500).send({message: err});})
+      .then(connection => {
+        return new Promise((fulfill, reject) => {
+          var query = 'select likeid from triplike where contentid = ? && userid = ?'
+          connection.query(query,[contentid[i],req.body.userid], (err,data) => {
+            if(err) res.status(500).send({message: "er" + err});
+            else {
+              if(data[0]) fulfill([connection,'like']);
+              else fulfill([connection,'unlike']);
+            }
           })
-          .catch(err => { res.status(500).send({ message: "getConnection error: "+err }); })
-          .then(connection => {
-            return new Promise((fulfill, reject) => {
-              console.log(req.body);
-                var query = 'select viewcount, likecount, commentcount from trips where contentid = ?';
-                connection.query(query, contentid[i], (err, data) => {
-                   if(err) res.status(500).send({ message: "connection error: "+err});
-                   else {
-                     var likecount = 0;
-                     var commentcount = 0;
-                     var viewcount = 0;
-                     if(data[0]) likecount = data[0].likecount;
-                     if(data[0]) commentcount = data[0].commentcount;
-                     if(data[0]) viewcount = data[0].viewcount;
-                     likecount =
-                     triplists[i] = {
-                       tripinfo : {
-                         contentid : contentid[i],
-                         contenttypeid : contenttypeid[i],
-                         addr1 : addr1[i],
-                         title : title[i],
-                         firstimage : firstimage[i],
-                         overview :  overview[i],
-                         likecount : likecount,
-                         commentcount : commentcount,
-                         viewcount : viewcount
-                       },
-                       detailWithTour : {
-                         parking : parking[i],
-                         route : route[i],
-                         wheelchair : wheelchair[i],
-                         elevator : elevator[i],
-                         restroom : restroom[i],
-                         handicapetc : handicapetc[i],
-                         braileblock : braileblock[i]
-                       }
-                     }
-                   }
-                   if(i === lng-1) res.send({result: triplists});
-                   else getData(i+1);
-                   connection.release();
-                });
-            });
-          })
+        })
+      })
+      .catch(err => { res.status(500).send({ message: "getConnection error: "+err }); })
+      .then(([connection,message]) => {
+        return new Promise((fulfill, reject) => {
+          console.log(i);
+          var query = 'select likecount, commentcount from trips where contentid = ?';
+          connection.query(query, contentid[i], (err, data) => {
+             if(err) res.status(500).send({ message: "connection error: "+err});
+             else {
+               var likecount = 0;
+               var commentcount = 0;
+               if(data[0]) likecount = data[0].likecount;
+               if(data[0]) commentcount = data[0].commentcount;
+               triplists[i] = {
+                 message : message,
+                 tripinfo : {
+                   contentid : contentid[i],
+                   contenttypeid : contenttypeid[i],
+                   addr1 : addr1[i],
+                   title : title[i],
+                   firstimage : firstimage[i],
+                   overview :  overview[i],
+                   likecount : likecount,
+                   commentcount : commentcount
+                 },
+                 detailWithTour : {
+                   parking : parking[i],
+                   route : route[i],
+                   wheelchair : wheelchair[i],
+                   elevator : elevator[i],
+                   restroom : restroom[i],
+                   handicapetc : handicapetc[i],
+                   braileblock : braileblock[i]
+                 }
+               };
+             }
+             fulfill(triplists[i]);
+          });
         });
       });
     }
-    if(lng === undefined) return;
-    else getData(0);
+    var func = [];
+    for(var j=0;j<lng;j++) func[j] = gettingdata(j);
+    Promise.all(func).then(result => {
+      res.send({result:triplists});
+      console.log(triplists);
+    })
+
   });
 });
 
